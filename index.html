@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pick Your Host: Vertex Predictions vs. Cloud Run</title>
+    
+    <!-- Tailwind CSS for rapid, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter for a clean, modern look -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS for advanced animations, tooltips, and component styling -->
+    <style>
+        /* Apply the Inter font family globally */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* --- Tooltip Styles --- */
+        /* Container for tooltip text, initially hidden */
+        .tooltip-container {
+            position: relative;
+            display: inline-block;
+            border-bottom: 2px dotted #9ca3af; /* Dotted underline to indicate interactivity */
+            cursor: help;
+        }
+
+        /* The actual tooltip popup, hidden by default */
+        .tooltip-text {
+            visibility: hidden;
+            width: 280px;
+            background-color: #1f2937; /* Dark background */
+            color: #fff; /* White text */
+            text-align: left;
+            border-radius: 8px;
+            padding: 12px;
+            position: absolute;
+            z-index: 10;
+            bottom: 125%; /* Position above the text */
+            left: 50%;
+            margin-left: -140px; /* Center the tooltip */
+            opacity: 0;
+            transition: opacity 0.3s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Close button for the tooltip */
+        .tooltip-close {
+            position: absolute;
+            top: 4px;
+            right: 8px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #9ca3af;
+        }
+        .tooltip-close:hover {
+            color: #fff;
+        }
+
+        /* Show the tooltip when the 'active' class is added by JS */
+        .tooltip-container.active .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* --- Animation & Transition Styles --- */
+        /* Smooth transitions for all relevant properties */
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+        
+        /* Card flip animation */
+        .card-flip-container {
+            perspective: 1000px;
+        }
+        .card-flipper {
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+        }
+        
+        /* Bar graph animation for latency simulator */
+        .bar {
+            transition: width 0.5s ease-in-out;
+        }
+        
+        /* Fade-in animation for quiz result */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out forwards;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <main class="container mx-auto p-4 md:p-8">
+        
+        <!-- Header Section -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Pick Your Host</h1>
+            <p class="mt-2 text-lg text-gray-600">Vertex AI Predictions vs. Cloud Run for ML Model Serving</p>
+        </header>
+
+        <!-- Main Grid Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+            <!-- Left Column: Controls & Inputs -->
+            <div class="lg:col-span-2 space-y-8">
+                
+                <!-- 1. Service Selector Toggle -->
+                <section aria-labelledby="service-selector-title">
+                    <h2 id="service-selector-title" class="text-xl font-bold mb-4">1. Choose Your Service</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button id="select-vertex" type="button" aria-pressed="true" class="p-4 border-2 border-blue-600 bg-blue-100 rounded-lg font-bold text-blue-800 transition-all">
+                            Vertex AI
+                        </button>
+                        <button id="select-cloudrun" type="button" aria-pressed="false" class="p-4 border-2 border-gray-300 bg-white rounded-lg font-bold text-gray-600 transition-all">
+                            Cloud Run
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 2. Cost Estimator -->
+                <section aria-labelledby="cost-estimator-title">
+                    <h2 id="cost-estimator-title" class="text-xl font-bold mb-4">2. Estimate Monthly Cost</h2>
+                    <div class="space-y-4 p-6 bg-white rounded-lg shadow-md">
+                        <div>
+                            <label for="requests-day" class="block text-sm font-medium text-gray-700">Requests / Day</label>
+                            <input type="number" id="requests-day" value="100000" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="payload-kb" class="block text-sm font-medium text-gray-700">Average Payload (kB)</label>
+                            <input type="number" id="payload-kb" value="100" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="model-mb" class="block text-sm font-medium text-gray-700">Model Size (MB)</label>
+                            <input type="number" id="model-mb" value="250" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <span class="block text-sm font-medium text-gray-700">Requires GPU?</span>
+                            <div class="mt-2 flex items-center space-x-4">
+                                <label class="flex items-center">
+                                    <input type="radio" name="gpu-option" id="gpu-yes" value="yes" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300">
+                                    <span class="ml-2 text-sm text-gray-700">Yes</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="radio" name="gpu-option" id="gpu-no" value="no" checked class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300">
+                                    <span class="ml-2 text-sm text-gray-700">No</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                
+                <!-- 3. Latency Simulator -->
+                <section aria-labelledby="latency-simulator-title">
+                    <h2 id="latency-simulator-title" class="text-xl font-bold mb-4">3. Simulate Latency</h2>
+                    <div class="p-6 bg-white rounded-lg shadow-md">
+                        <label for="concurrent-users" class="block text-sm font-medium text-gray-700">Concurrent Users: <span id="concurrent-users-value" class="font-bold">100</span></label>
+                        <input id="concurrent-users" type="range" min="1" max="1000" value="100" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer mt-2">
+                    </div>
+                </section>
+
+                <!-- 4. Decision Tree Quiz -->
+                <section aria-labelledby="quiz-title">
+                    <h2 id="quiz-title" class="text-xl font-bold mb-4">4. Not Sure? Take the Quiz!</h2>
+                    <div id="quiz-container" class="p-6 bg-white rounded-lg shadow-md space-y-4">
+                        <!-- Quiz questions will be injected here by JavaScript -->
+                    </div>
+                </section>
+
+            </div>
+
+            <!-- Right Column: Visuals & Outputs -->
+            <div class="lg:col-span-3 space-y-8">
+                
+                <!-- Side-by-Side Specs Card -->
+                <section aria-labelledby="specs-title">
+                    <h2 id="specs-title" class="text-xl font-bold mb-4 text-center">At a Glance</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Vertex AI Card -->
+                        <div id="vertex-card" class="p-6 bg-white rounded-lg shadow-lg border-2 border-blue-500">
+                            <h3 class="text-2xl font-bold text-center text-blue-800">Vertex AI</h3>
+                            <ul class="mt-4 space-y-3 text-sm">
+                                <li class="flex justify-between"><strong>Latency:</strong> <span id="vertex-latency-spec">Low (Optimized)</span></li>
+                                <li class="flex justify-between"><strong>Cost Model:</strong> <span>Node-hour + Prediction</span></li>
+                                <li class="flex justify-between"><strong>GPU Support:</strong> <span class="font-bold text-green-600">Yes</span></li>
+                                <li class="flex justify-between"><strong>Custom Code:</strong> <span>Via Custom Container</span></li>
+                            </ul>
+                            <div class="mt-6 text-center">
+                                <p class="text-lg font-semibold">Estimated Cost:</p>
+                                <p id="vertex-cost" class="text-3xl font-bold text-blue-700">$0.00</p>
+                            </div>
+                        </div>
+                        <!-- Cloud Run Card -->
+                        <div id="cloudrun-card" class="p-6 bg-white rounded-lg shadow-lg border-2 border-gray-300">
+                            <h3 class="text-2xl font-bold text-center text-gray-700">Cloud Run</h3>
+                            <ul class="mt-4 space-y-3 text-sm">
+                                <li class="flex justify-between"><strong>Latency:</strong> <span id="cloudrun-latency-spec">Variable (Cold Starts)</span></li>
+                                <li class="flex justify-between"><strong>Cost Model:</strong> <span>vCPU-sec + Memory-sec</span></li>
+                                <li class="flex justify-between"><strong>GPU Support:</strong> <span class="font-bold text-green-600">Yes (Gen 2)</span></li>
+                                <li class="flex justify-between"><strong>Custom Code:</strong> <span class="font-bold text-green-600">Yes</span></li>
+                            </ul>
+                            <div class="mt-6 text-center">
+                                <p class="text-lg font-semibold">Estimated Cost:</p>
+                                <p id="cloudrun-cost" class="text-3xl font-bold text-gray-600">$0.00</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Latency Simulation Visual -->
+                <section aria-labelledby="latency-visual-title">
+                     <h2 id="latency-visual-title" class="text-xl font-bold mb-4 text-center">Latency Breakdown</h2>
+                     <div class="p-6 bg-white rounded-lg shadow-lg space-y-6">
+                         <div>
+                             <h4 class="font-semibold mb-2">p95 Latency (ms)</h4>
+                             <div class="space-y-3">
+                                 <div class="flex items-center">
+                                     <span class="w-24 text-sm font-medium">Vertex AI</span>
+                                     <div class="w-full bg-gray-200 rounded-full h-6">
+                                         <div id="vertex-latency-bar" class="bar bg-blue-500 h-6 rounded-full text-white text-xs flex items-center justify-center" style="width: 50%;">50ms</div>
+                                     </div>
+                                 </div>
+                                 <div class="flex items-center">
+                                     <span class="w-24 text-sm font-medium">Cloud Run</span>
+                                     <div class="w-full bg-gray-200 rounded-full h-6">
+                                         <div id="cloudrun-latency-bar" class="bar bg-gray-500 h-6 rounded-full text-white text-xs flex items-center justify-center" style="width: 15%;">150ms</div>
+                                     </div>
+                                 </div>
+                             </div>
+                         </div>
+                         <div>
+                             <h4 class="font-semibold mb-2">
+                                <span class="tooltip-container">Cold Start
+                                    <span class="tooltip-text">A "cold start" occurs when a serverless function is invoked for the first time or after a period of inactivity. The platform needs to provision a new container, which adds significant latency to the first request.
+                                    <span class="tooltip-close">&times;</span></span>
+                                </span> Probability
+                             </h4>
+                             <div class="space-y-3">
+                                 <div class="flex items-center">
+                                     <span class="w-24 text-sm font-medium">Vertex AI</span>
+                                     <div class="w-full bg-gray-200 rounded-full h-6">
+                                         <div id="vertex-coldstart-bar" class="bar bg-blue-300 h-6 rounded-full text-gray-800 text-xs flex items-center justify-center" style="width: 1%;">1%</div>
+                                     </div>
+                                 </div>
+                                 <div class="flex items-center">
+                                     <span class="w-24 text-sm font-medium">Cloud Run</span>
+                                     <div class="w-full bg-gray-200 rounded-full h-6">
+                                         <div id="cloudrun-coldstart-bar" class="bar bg-gray-300 h-6 rounded-full text-gray-800 text-xs flex items-center justify-center" style="width: 20%;">20%</div>
+                                     </div>
+                                 </div>
+                             </div>
+                         </div>
+                     </div>
+                </section>
+
+                <!-- CLI Command Generator -->
+                <aside aria-labelledby="cli-title">
+                    <h2 id="cli-title" class="text-xl font-bold mb-4 text-center">Deployment Command</h2>
+                    <div class="bg-gray-800 rounded-lg shadow-lg p-4">
+                        <pre class="text-sm text-gray-200 whitespace-pre-wrap"><code id="cli-output"># Select a service and configure options to see the command.</code></pre>
+                        <button id="copy-cli" type="button" class="mt-4 w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500">
+                            Copy to Clipboard
+                        </button>
+                        <p id="copy-feedback" class="text-center text-green-400 text-sm mt-2 h-4"></p>
+                    </div>
+                </aside>
+
+            </div>
+        </div>
+        
+        <!-- Jargon / Tooltip Definitions -->
+        <footer class="mt-12 pt-8 border-t border-gray-200 text-center text-gray-600">
+            <h3 class="font-bold text-lg mb-4">Key Terms</h3>
+            <div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+                <p><strong class="tooltip-container">Prediction Node<span class="tooltip-text">In Vertex AI, a prediction node is a virtual machine that runs your model. You pay for the time this node is active, regardless of how many predictions it serves. This is ideal for consistent, high traffic. <span class="tooltip-close">&times;</span></span></strong></p>
+                <p><strong class="tooltip-container">Concurrency<span class="tooltip-text">In Cloud Run, concurrency is the number of requests that a single container instance can handle at the same time. Higher concurrency can lead to better resource utilization and lower costs.<span class="tooltip-close">&times;</span></span></strong></p>
+                <p><strong class="tooltip-container">p95 Latency<span class="tooltip-text">The 95th percentile latency. This means that 95% of requests are faster than this value. It's a common metric for measuring performance that ignores the very slowest outlier requests.<span class="tooltip-close">&times;</span></span></strong></p>
+            </div>
+        </footer>
+    </main>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+
+        // --- STATE MANAGEMENT --- //
+        // A central object to hold the application's state.
+        // This makes it easier to manage data and keep the UI consistent.
+        const appState = {
+            selectedService: 'vertex', // 'vertex' or 'cloudrun'
+            costInputs: {
+                requestsDay: 100000,
+                payloadKb: 100,
+                modelMb: 250,
+                gpu: 'no',
+            },
+            latencyInputs: {
+                concurrentUsers: 100,
+            },
+            quiz: {
+                currentQuestion: 0,
+                answers: {},
+            }
+        };
+
+        // --- ELEMENT SELECTORS --- //
+        // Caching DOM elements for performance and cleaner code.
+        const elements = {
+            // Service Selector
+            selectVertexBtn: document.getElementById('select-vertex'),
+            selectCloudRunBtn: document.getElementById('select-cloudrun'),
+            vertexCard: document.getElementById('vertex-card'),
+            cloudrunCard: document.getElementById('cloudrun-card'),
+            // Cost Estimator
+            requestsDayInput: document.getElementById('requests-day'),
+            payloadKbInput: document.getElementById('payload-kb'),
+            modelMbInput: document.getElementById('model-mb'),
+            gpuRadios: document.querySelectorAll('input[name="gpu-option"]'),
+            vertexCostDisplay: document.getElementById('vertex-cost'),
+            cloudrunCostDisplay: document.getElementById('cloudrun-cost'),
+            // Latency Simulator
+            concurrentUsersSlider: document.getElementById('concurrent-users'),
+            concurrentUsersValue: document.getElementById('concurrent-users-value'),
+            vertexLatencyBar: document.getElementById('vertex-latency-bar'),
+            cloudrunLatencyBar: document.getElementById('cloudrun-latency-bar'),
+            vertexColdStartBar: document.getElementById('vertex-coldstart-bar'),
+            cloudrunColdStartBar: document.getElementById('cloudrun-coldstart-bar'),
+            // CLI Generator
+            cliOutput: document.getElementById('cli-output'),
+            copyCliBtn: document.getElementById('copy-cli'),
+            copyFeedback: document.getElementById('copy-feedback'),
+            // Quiz
+            quizContainer: document.getElementById('quiz-container'),
+        };
+
+        // --- QUIZ DATA --- //
+        const quizQuestions = [
+            {
+                question: "Do you need a GPU for your model?",
+                key: "gpu"
+            },
+            {
+                question: "Is your traffic pattern spiky or unpredictable?",
+                key: "spikyTraffic"
+            },
+            {
+                question: "Do you need custom logic for pre/post-processing outside of a standard ML framework?",
+                key: "customLogic"
+            },
+            {
+                question: "Is minimizing cost for idle periods your absolute top priority?",
+                key: "idleCost"
+            }
+        ];
+
+        // --- SERVICE SELECTION LOGIC --- //
+        function selectService(service) {
+            appState.selectedService = service;
+            updateServiceSelectorUI();
+            updateAllVisuals();
+        }
+
+        function updateServiceSelectorUI() {
+            if (appState.selectedService === 'vertex') {
+                elements.selectVertexBtn.classList.replace('bg-white', 'bg-blue-100');
+                elements.selectVertexBtn.classList.replace('text-gray-600', 'text-blue-800');
+                elements.selectVertexBtn.classList.replace('border-gray-300', 'border-blue-600');
+                elements.selectVertexBtn.setAttribute('aria-pressed', 'true');
+
+                elements.selectCloudRunBtn.classList.replace('bg-blue-100', 'bg-white');
+                elements.selectCloudRunBtn.classList.replace('text-blue-800', 'text-gray-600');
+                elements.selectCloudRunBtn.classList.replace('border-blue-600', 'border-gray-300');
+                elements.selectCloudRunBtn.setAttribute('aria-pressed', 'false');
+                
+                elements.vertexCard.classList.replace('border-gray-300', 'border-blue-500');
+                elements.cloudrunCard.classList.replace('border-blue-500', 'border-gray-300');
+
+            } else { // cloudrun
+                elements.selectCloudRunBtn.classList.replace('bg-white', 'bg-blue-100');
+                elements.selectCloudRunBtn.classList.replace('text-gray-600', 'text-blue-800');
+                elements.selectCloudRunBtn.classList.replace('border-gray-300', 'border-blue-600');
+                elements.selectCloudRunBtn.setAttribute('aria-pressed', 'true');
+
+                elements.selectVertexBtn.classList.replace('bg-blue-100', 'bg-white');
+                elements.selectVertexBtn.classList.replace('text-blue-800', 'text-gray-600');
+                elements.selectVertexBtn.classList.replace('border-blue-600', 'border-gray-300');
+                elements.selectVertexBtn.setAttribute('aria-pressed', 'false');
+
+                elements.cloudrunCard.classList.replace('border-gray-300', 'border-blue-500');
+                elements.vertexCard.classList.replace('border-blue-500', 'border-gray-300');
+            }
+        }
+
+        // --- COST CALCULATION LOGIC --- //
+        // INSTRUCTOR NOTE: These formulas are simplified for demonstration.
+        // You can replace them with more complex, accurate pricing models.
+        function calculateCosts() {
+            const { requestsDay, payloadKb, modelMb, gpu } = appState.costInputs;
+            const requestsMonth = requestsDay * 30;
+
+            // ** Vertex AI Cost Formula **
+            // Cost = (Node Hour Cost * Hours) + (Prediction Cost * # Predictions)
+            const nodeType = gpu === 'yes' ? 'n1-standard-4_with_T4' : 'n1-standard-2';
+            const nodeHourCost = {
+                'n1-standard-2': 0.258, // Mock price
+                'n1-standard-4_with_T4': 1.05, // Mock price with GPU
+            }[nodeType];
+            const nodeCost = nodeHourCost * 24 * 30; // Assuming 1 node, always on
+            const predictionCostPerMillion = 1.25; // Mock price
+            const predictionCost = (requestsMonth / 1000000) * predictionCostPerMillion;
+            const vertexTotalCost = nodeCost + predictionCost;
+            
+            // ** Cloud Run Cost Formula **
+            // Cost = (vCPU-seconds * Price) + (GB-seconds * Price) + (Requests * Price)
+            const avgRequestTimeSec = 0.2; // Assume 200ms processing time
+            const vcpuNeeded = modelMb > 500 ? 2 : 1; // More vCPU for larger models
+            const memoryNeededGb = Math.max(0.5, modelMb / 1000 * 2); // Memory scales with model size
+            const vcpuCostPerSec = 0.000024;
+            const memoryCostPerGbSec = 0.0000025;
+            const requestCostPerMillion = 0.40;
+            
+            const totalVcpuSeconds = requestsMonth * avgRequestTimeSec * vcpuNeeded;
+            const totalGbSeconds = requestsMonth * avgRequestTimeSec * memoryNeededGb;
+            
+            const computeCost = (totalVcpuSeconds * vcpuCostPerSec) + (totalGbSeconds * memoryCostPerGbSec);
+            const requestsCost = (requestsMonth / 1000000) * requestCostPerMillion;
+            // Add a mock GPU cost if selected for Cloud Run
+            const gpuCost = gpu === 'yes' ? (requestsMonth * avgRequestTimeSec * 0.0011) : 0; // Mock GPU-second cost
+            const cloudrunTotalCost = computeCost + requestsCost + gpuCost;
+
+            // Update UI
+            elements.vertexCostDisplay.textContent = `$${vertexTotalCost.toFixed(2)}`;
+            elements.cloudrunCostDisplay.textContent = `$${cloudrunTotalCost.toFixed(2)}`;
+        }
+
+        // --- LATENCY SIMULATION LOGIC --- //
+        // INSTRUCTOR NOTE: These curves are for demonstration.
+        // Adjust the math to reflect different performance characteristics.
+        function updateLatencyVisuals() {
+            const users = appState.latencyInputs.concurrentUsers;
+
+            // Vertex AI Latency (more stable)
+            // Starts at a base latency and slowly increases with load.
+            const vertexBaseLatency = 50;
+            const vertexLatency = vertexBaseLatency + (users / 1000) * 50;
+            const vertexColdStartProb = 1; // Almost zero, always warm
+
+            // Cloud Run Latency (variable, affected by cold starts)
+            // Higher base latency due to potential cold starts, which decrease with more traffic.
+            const coldStartPenalty = Math.max(0, 1000 - users * 2); // Penalty decreases as users increase
+            const cloudrunBaseLatency = 150;
+            const cloudrunLatency = cloudrunBaseLatency + (users / 1000) * 100 + coldStartPenalty;
+            const cloudrunColdStartProb = Math.max(1, 40 - (users / 1000) * 80);
+
+            // Update bar widths and text (max latency shown is 1500ms)
+            const maxLatency = 1500;
+            elements.vertexLatencyBar.style.width = `${Math.min(100, (vertexLatency / maxLatency) * 100)}%`;
+            elements.vertexLatencyBar.textContent = `${Math.round(vertexLatency)}ms`;
+            elements.cloudrunLatencyBar.style.width = `${Math.min(100, (cloudrunLatency / maxLatency) * 100)}%`;
+            elements.cloudrunLatencyBar.textContent = `${Math.round(cloudrunLatency)}ms`;
+            
+            // Update cold start bars
+            elements.vertexColdStartBar.style.width = `${vertexColdStartProb}%`;
+            elements.vertexColdStartBar.textContent = `${Math.round(vertexColdStartProb)}%`;
+            elements.cloudrunColdStartBar.style.width = `${cloudrunColdStartProb}%`;
+            elements.cloudrunColdStartBar.textContent = `${Math.round(cloudrunColdStartProb)}%`;
+        }
+        
+        // --- CLI GENERATOR LOGIC --- //
+        function generateCliCommand() {
+            const { modelMb, gpu } = appState.costInputs;
+            const modelName = "my-cool-model";
+            const endpointName = "my-cool-endpoint";
+            const region = "us-central1";
+            let command = '';
+
+            if (appState.selectedService === 'vertex') {
+                const machineType = gpu === 'yes' ? 'n1-standard-4' : 'n1-standard-2';
+                const accelerator = gpu === 'yes' ? ' --accelerator="type=nvidia-tesla-t4,count=1"' : '';
+                
+                command = `# 1. Upload model to Vertex AI Models
+gcloud ai models upload \\
+  --region=${region} \\
+  --display-name=${modelName} \\
+  --container-image-uri="us-docker.pkg.dev/vertex-ai/prediction/tf2-cpu.2-8:latest" \\
+  --artifact-uri="gs://your-bucket/path-to-model/"
+
+# 2. Create an Endpoint
+gcloud ai endpoints create \\
+  --region=${region} \\
+  --display-name=${endpointName}
+
+# 3. Deploy model to the Endpoint
+gcloud ai endpoints deploy-model ${endpointName} \\
+  --region=${region} \\
+  --model=${modelName} \\
+  --display-name="v1-deployment" \\
+  --machine-type="${machineType}"${accelerator} \\
+  --min-replica-count=1 \\
+  --max-replica-count=5`;
+            
+            } else { // cloudrun
+                const memory = `${Math.max(512, modelMb * 2)}Mi`;
+                const cpu = modelMb > 500 ? '2' : '1';
+                const gpuFlag = gpu === 'yes' ? ' --execution-environment=gen2 --gpu=t4' : '';
+
+                command = `# Build and push your container image first
+# gcloud builds submit --tag gcr.io/your-project/your-image
+
+# Deploy to Cloud Run
+gcloud run deploy ${modelName}-service \\
+  --image="gcr.io/your-project/your-image" \\
+  --platform=managed \\
+  --region=${region} \\
+  --memory=${memory} \\
+  --cpu=${cpu}${gpuFlag} \\
+  --allow-unauthenticated`;
+            }
+
+            elements.cliOutput.textContent = command;
+        }
+
+        // --- QUIZ LOGIC --- //
+        function renderQuiz() {
+            const qIndex = appState.quiz.currentQuestion;
+
+            if (qIndex >= quizQuestions.length) {
+                showQuizResult();
+                return;
+            }
+
+            const questionData = quizQuestions[qIndex];
+            elements.quizContainer.innerHTML = `
+                <p class="font-semibold text-center">${questionData.question}</p>
+                <div class="flex justify-center gap-4 pt-2">
+                    <button data-answer="yes" data-key="${questionData.key}" class="quiz-btn bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg transition-all">Yes</button>
+                    <button data-answer="no" data-key="${questionData.key}" class="quiz-btn bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-lg transition-all">No</button>
+                </div>
+            `;
+        }
+
+        function handleQuizAnswer(e) {
+            if (!e.target.classList.contains('quiz-btn')) return;
+            
+            const { answer, key } = e.target.dataset;
+            appState.quiz.answers[key] = (answer === 'yes');
+            appState.quiz.currentQuestion++;
+            renderQuiz();
+        }
+
+        function showQuizResult() {
+            const { gpu, spikyTraffic, customLogic, idleCost } = appState.quiz.answers;
+            let recommendation = '';
+            let explanation = '';
+
+            // Decision Logic
+            if (gpu && !spikyTraffic) {
+                recommendation = 'Vertex AI';
+                explanation = 'Vertex AI is a strong choice. Its dedicated nodes with powerful GPUs are ideal for consistent, high-performance workloads without the overhead of cold starts.';
+            } else if (spikyTraffic || idleCost) {
+                recommendation = 'Cloud Run';
+                explanation = 'Cloud Run excels here. Its ability to scale to zero means you only pay for what you use, making it perfect for unpredictable traffic and minimizing costs during idle times.';
+            } else if (customLogic) {
+                recommendation = 'Cloud Run';
+                explanation = 'Cloud Run gives you maximum flexibility. You can package any custom code, libraries, or binaries into a container, making it ideal for complex pre/post-processing pipelines.';
+            } else {
+                recommendation = 'Vertex AI';
+                explanation = 'For a straightforward, managed ML serving experience with optimized performance, Vertex AI is often the simpler and more direct path.';
+            }
+
+            elements.quizContainer.innerHTML = `
+                <div class="text-center fade-in">
+                    <p class="font-semibold">Recommendation:</p>
+                    <h3 class="text-2xl font-bold my-2 ${recommendation === 'Vertex AI' ? 'text-blue-700' : 'text-gray-700'}">${recommendation}</h3>
+                    <p class="text-sm text-gray-600">${explanation}</p>
+                    <button id="reset-quiz" class="mt-4 text-sm text-indigo-600 hover:underline">Start Over</button>
+                </div>
+            `;
+            document.getElementById('reset-quiz').addEventListener('click', resetQuiz);
+        }
+
+        function resetQuiz() {
+            appState.quiz.currentQuestion = 0;
+            appState.quiz.answers = {};
+            renderQuiz();
+        }
+
+        // --- TOOLTIP LOGIC --- //
+        function handleTooltip(e) {
+            const container = e.target.closest('.tooltip-container');
+            if (!container) return; // Exit if not a tooltip trigger
+
+            // If it's the close button, hide the parent tooltip
+            if (e.target.classList.contains('tooltip-close')) {
+                container.classList.remove('active');
+                return;
+            }
+            
+            // Toggle the active state on the container
+            container.classList.toggle('active');
+        }
+
+
+        // --- EVENT LISTENERS --- //
+        function addEventListeners() {
+            // Service selection
+            elements.selectVertexBtn.addEventListener('click', () => selectService('vertex'));
+            elements.selectCloudRunBtn.addEventListener('click', () => selectService('cloudrun'));
+
+            // Cost estimator inputs
+            const costInputs = [elements.requestsDayInput, elements.payloadKbInput, elements.modelMbInput];
+            costInputs.forEach(input => input.addEventListener('input', (e) => {
+                const keyMap = {
+                    'requests-day': 'requestsDay',
+                    'payload-kb': 'payloadKb',
+                    'model-mb': 'modelMb'
+                };
+                appState.costInputs[keyMap[e.target.id]] = Number(e.target.value);
+                updateAllVisuals();
+            }));
+            elements.gpuRadios.forEach(radio => radio.addEventListener('change', (e) => {
+                appState.costInputs.gpu = e.target.value;
+                updateAllVisuals();
+            }));
+
+            // Latency slider
+            elements.concurrentUsersSlider.addEventListener('input', (e) => {
+                appState.latencyInputs.concurrentUsers = Number(e.target.value);
+                elements.concurrentUsersValue.textContent = e.target.value;
+                updateLatencyVisuals();
+            });
+
+            // CLI copy button
+            elements.copyCliBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(elements.cliOutput.textContent)
+                    .then(() => {
+                        elements.copyFeedback.textContent = 'Copied!';
+                        setTimeout(() => elements.copyFeedback.textContent = '', 2000);
+                    })
+                    .catch(err => {
+                        elements.copyFeedback.textContent = 'Failed to copy';
+                         setTimeout(() => elements.copyFeedback.textContent = '', 2000);
+                    });
+            });
+
+            // Quiz
+            elements.quizContainer.addEventListener('click', handleQuizAnswer);
+            
+            // Tooltips (event delegation on the body)
+            document.body.addEventListener('click', handleTooltip);
+        }
+
+        // --- INITIALIZATION --- //
+        function init() {
+            // Master update function
+            updateAllVisuals();
+            addEventListeners();
+            renderQuiz();
+        }
+
+        function updateAllVisuals() {
+            calculateCosts();
+            updateLatencyVisuals();
+            generateCliCommand();
+        }
+
+        // Run the application
+        init();
+    });
+    </script>
+</body>
+</html>
